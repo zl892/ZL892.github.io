@@ -206,6 +206,102 @@
                 border: 1px solid #ccc;
                 font-size: 14px;
             }
+        /* 拼写测试样式 */
+        .spell-card {
+            text-align: center;
+            background: #faf5ff;
+            border-radius: 16px;
+            padding: 30px;
+            margin: 20px 0;
+        }
+
+        .spell-word-display {
+            font-size: 42px;
+            font-weight: bold;
+            margin: 10px 0;
+            color: #2c3e50;
+        }
+
+        .spell-phonetic-hint {
+            font-size: 18px;
+            color: #888;
+            margin-bottom: 15px;
+        }
+
+        .spell-reveal-box {
+            display: none;
+            margin: 15px 0;
+            padding: 15px;
+            background: #fff;
+            border-radius: 12px;
+            border: 2px dashed #b2bec3;
+        }
+
+            .spell-reveal-box .eng {
+                font-size: 36px;
+                font-weight: bold;
+                color: #0984e3;
+            }
+
+            .spell-reveal-box .chn {
+                font-size: 24px;
+                color: #2d3436;
+                margin-top: 5px;
+            }
+
+        .spell-feedback-btns {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 15px;
+        }
+
+            .spell-feedback-btns button {
+                padding: 12px 30px;
+                border: none;
+                border-radius: 30px;
+                font-size: 18px;
+                cursor: pointer;
+            }
+
+        .btn-remember {
+            background: #00b894;
+            color: white;
+        }
+
+        .btn-forget {
+            background: #d63031;
+            color: white;
+        }
+
+        .spell-stats-box {
+            display: none;
+            text-align: center;
+            background: #dfe6e9;
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 15px;
+        }
+
+            .spell-stats-box h3 {
+                margin-top: 0;
+            }
+
+            .spell-stats-box ul {
+                list-style: none;
+                padding: 0;
+            }
+
+            .spell-stats-box li {
+                font-size: 18px;
+                margin: 6px 0;
+            }
+
+        .spell-progress {
+            font-size: 14px;
+            color: #636e72;
+            margin: 10px 0;
+        }
     </style>
 </head>
 <body>
@@ -215,6 +311,7 @@
         <div class="tab-buttons">
             <button class="tablink active" onclick="openTab('listTab')">📋 单词列表</button>
             <button class="tablink" onclick="openTab('randomTab')">🎲 随机背单词</button>
+            <button class="tablink" onclick="openTab('spellTab')">✍️ 拼写测试</button>
         </div>
 
         <!-- 单词列表标签页 -->
@@ -278,6 +375,43 @@
                 </div>
             </div>
             <p style="text-align:center; color:#888;">当前范围单词数：<span id="totalCount">0</span></p>
+        </div>
+        <!-- 拼写测试标签页 -->
+        <div id="spellTab" class="section">
+            <div class="card spell-card">
+                <div class="filter-row">
+                    <label>📌 选择范围：</label>
+                    <select id="spellCategoryFilter" onchange="onSpellCategoryChange()">
+                        <option value="">全部</option>
+                    </select>
+                </div>
+                <button onclick="speakSpellWord()" style="font-size: 24px; padding: 12px 30px; margin: 10px;">🔊 播报单词</button>
+                <div class="spell-phonetic-hint" id="spell-phonetic-hint"></div>
+                <div class="spell-progress" id="spell-progress"></div>
+
+                <button onclick="revealSpellWord()" style="padding: 10px 25px; margin: 10px;">👀 让我康康</button>
+
+                <div class="spell-reveal-box" id="spell-reveal-box">
+                    <div class="eng" id="spell-eng"></div>
+                    <div class="chn" id="spell-chn"></div>
+                    <div class="spell-feedback-btns">
+                        <button class="btn-remember" onclick="markSpellWord('remember')">🍗 酱味大鸡</button>
+                        <button class="btn-forget" onclick="markSpellWord('forget')">❓ 真的假的</button>
+                    </div>
+                </div>
+
+                <p style="margin-top: 10px;">
+                    <button onclick="finishSpellTest()" style="background: #636e72; color: white; padding: 10px 25px; border: none; border-radius: 20px; font-size: 16px;">🏁 结束测试</button>
+                </p>
+            </div>
+
+            <div class="spell-stats-box" id="spell-stats-box">
+                <h3>📊 本次测试统计</h3>
+                <p>复习单词数：<span id="spell-total"></span></p>
+                <p>记忆困难单词：</p>
+                <ul id="spell-difficult-list"></ul>
+                <button onclick="restartSpellTest()" style="padding: 8px 20px; border: none; border-radius: 20px; background: #0984e3; color: white; cursor: pointer;">🔄 再来一组</button>
+            </div>
         </div>
     </div>
 
@@ -591,6 +725,13 @@
         }
 
         // 随机背单词模块
+        // 拼写测试模块
+        let spellWordList = [];          // 当前测试范围的单词列表
+        let spellCurrent = null;        // 当前测的单词
+        let spellErrorQueue = [];       // 错题队列（单词对象）
+        let spellCompletedCount = 0;    // 已完成测试的单词数（用于统计）
+        let spellDifficultWords = [];   // 记录困难单词（原始对象）
+        let spellTestActive = false;    // 是否正在进行测试
         let randomCurrent = null;
 
         function nextRandomWord() {
@@ -632,19 +773,141 @@
             if (tabName === 'listTab') {
                 document.querySelector('.tablink:first-child').classList.add('active');
                 renderWordList();
-            } else {
-                document.querySelector('.tablink:last-child').classList.add('active');
+            } else if (tabName === 'randomTab') {
+                document.querySelectorAll('.tablink')[1].classList.add('active');
                 updateRandomCategoryFilter();
                 nextRandomWord();
                 updateRandomTotal();
-                loadVoices();
+            } else if (tabName === 'spellTab') {
+                document.querySelectorAll('.tablink')[2].classList.add('active');
+                initSpellTab();
             }
+            loadVoices();
         }
+     
 
         // 启动
         renderWordList();
         nextRandomWord();
         updateRandomTotal();
+        // ========== 拼写测试模块 ==========
+
+        function updateSpellCategoryFilter() {
+            const select = document.getElementById('spellCategoryFilter');
+            if (!select) return;
+            const currentVal = select.value;
+            const categories = [...new Set(words.map(w => w.category))];
+            select.innerHTML = '<option value="">全部</option>';
+            categories.forEach(cat => {
+                select.innerHTML += `<option value="${cat}">${cat}</option>`;
+            });
+            if (categories.includes(currentVal)) select.value = currentVal;
+            else select.value = '';
+        }
+
+        function getSpellWordList() {
+            const cat = document.getElementById('spellCategoryFilter').value;
+            return cat ? words.filter(w => w.category === cat) : [...words];
+        }
+
+        function resetSpellTest() {
+            spellWordList = getSpellWordList();
+            spellErrorQueue = [];
+            spellCompletedCount = 0;
+            spellDifficultWords = [];
+            spellTestActive = true;
+            spellCurrent = null;
+            document.getElementById('spell-reveal-box').style.display = 'none';
+            document.getElementById('spell-stats-box').style.display = 'none';
+            document.getElementById('spell-progress').innerText = '';
+            if (spellWordList.length === 0) {
+                alert('当前分类无单词');
+                spellTestActive = false;
+                return;
+            }
+            nextSpellWord();
+        }
+
+        function nextSpellWord() {
+            if (!spellTestActive) return;
+            // 错题优先逻辑：概率60%，且错题队列至少两个词
+            if (spellErrorQueue.length > 1 && Math.random() < 0.6) {
+                let candidate = spellErrorQueue[0];
+                if (spellCurrent && candidate.word === spellCurrent.word && spellErrorQueue.length > 1) {
+                    candidate = spellErrorQueue[1];
+                }
+                spellCurrent = candidate;
+            } else {
+                const idx = Math.floor(Math.random() * spellWordList.length);
+                spellCurrent = spellWordList[idx];
+            }
+            document.getElementById('spell-phonetic-hint').innerText = spellCurrent.phonetic;
+            document.getElementById('spell-reveal-box').style.display = 'none';
+            document.getElementById('spell-progress').innerText = `已复习：${spellCompletedCount} 词  |  错题库：${spellErrorQueue.length} 词`;
+        }
+
+        function speakSpellWord() {
+            if (!spellTestActive || !spellCurrent) alert('请开始测试');
+            else speakWordText(spellCurrent.word);
+        }
+
+        function revealSpellWord() {
+            if (!spellTestActive || !spellCurrent) return;
+            document.getElementById('spell-eng').innerText = spellCurrent.word;
+            document.getElementById('spell-chn').innerText = spellCurrent.meaning;
+            document.getElementById('spell-reveal-box').style.display = 'block';
+        }
+
+        function markSpellWord(result) {
+            if (!spellTestActive || !spellCurrent) return;
+            if (result === 'remember') {
+                spellErrorQueue = spellErrorQueue.filter(w => w.word !== spellCurrent.word);
+            } else {
+                if (!spellErrorQueue.some(w => w.word === spellCurrent.word)) {
+                    spellErrorQueue.push(spellCurrent);
+                }
+                if (!spellDifficultWords.some(w => w.word === spellCurrent.word)) {
+                    spellDifficultWords.push(spellCurrent);
+                }
+            }
+            spellCompletedCount++;
+            nextSpellWord();
+        }
+
+        function finishSpellTest() {
+            spellTestActive = false;
+            document.getElementById('spell-stats-box').style.display = 'block';
+            document.getElementById('spell-total').innerText = spellCompletedCount;
+            const diffList = document.getElementById('spell-difficult-list');
+            diffList.innerHTML = '';
+            if (spellDifficultWords.length === 0) {
+                diffList.innerHTML = '<li>🎉 全部记住，太强了！</li>';
+            } else {
+                spellDifficultWords.forEach(w => {
+                    diffList.innerHTML += `<li>${w.word} (${w.meaning})</li>`;
+                });
+            }
+            document.getElementById('spell-progress').innerText = '';
+        }
+
+        function restartSpellTest() {
+            spellErrorQueue = [];
+            spellCompletedCount = 0;
+            spellDifficultWords = [];
+            spellTestActive = true;
+            spellCurrent = null;
+            document.getElementById('spell-stats-box').style.display = 'none';
+            nextSpellWord();
+        }
+
+        function onSpellCategoryChange() {
+            resetSpellTest();
+        }
+
+        function initSpellTab() {
+            updateSpellCategoryFilter();
+            resetSpellTest();
+        }
     </script>
 </body>
 </html>

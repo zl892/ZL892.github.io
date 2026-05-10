@@ -495,16 +495,22 @@
         function speakWordText(text) {
             if (!text) return;
 
-            // 必须先取消，防止旧声音残留导致新声音被拦截
+            // ① 先暴力取消所有语音，再强制恢复音频上下文
             speechSynthesis.cancel();
+            if (speechSynthesis.paused) speechSynthesis.resume();
 
-            // 强制恢复音频上下文（解决某些版本的暂停状态）
-            if (speechSynthesis.paused) {
-                speechSynthesis.resume();
+            // ② 如果浏览器语音引擎已经“假死”，尝试重新获取语音列表来唤醒它
+            if (speechSynthesis.getVoices().length === 0) {
+                // 触发异步加载，并等待语音列表就绪后再继续
+                speechSynthesis.onvoiceschanged = null;
+                speechSynthesis.getVoices();
             }
 
-            // 等待微任务完成，确保 cancel 彻底生效后再创建新语音
+            // ③ 用一个延时器确保 cancel 彻底完成，并在同一事件循环中创建新语音
             setTimeout(() => {
+                // 再次确保引擎没有被暂停
+                if (speechSynthesis.paused) speechSynthesis.resume();
+
                 const utterance = new SpeechSynthesisUtterance(text);
                 utterance.lang = 'en-US';
                 utterance.rate = 0.9;
@@ -519,8 +525,14 @@
                     if (preferred) utterance.voice = preferred;
                 }
 
+                // ④ 终极保底：如果语音引擎完全没反应，监听错误并重置
+                utterance.onerror = (e) => {
+                    console.warn('语音播放出错，已自动重置引擎', e);
+                    speechSynthesis.cancel();
+                };
+
                 speechSynthesis.speak(utterance);
-            }, 10); // 10毫秒延迟足以让 cancel 完成，同时保持“用户点击”的有效窗口
+            }, 15); // 稍微加长延迟，给引擎充分的清理时间
         }
 
         // ---------- 自动获取音标（增强版） ----------

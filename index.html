@@ -302,6 +302,9 @@
             color: #636e72;
             margin: 10px 0;
         }
+        .batch-panel-btn {
+            margin-left: 6px;
+        }
     </style>
 </head>
 <body>
@@ -324,6 +327,17 @@
                 <input type="text" id="newCategory" placeholder="分类（如：基础、科技、日期2026-05-08）" list="categoryList" />
                 <datalist id="categoryList"></datalist>
                 <button onclick="fetchPhonetic()">🔍 自动获取音标</button>
+                <button onclick="toggleBatchPanel()" style="margin-left:6px;">📥 批量导入</button>
+                <div id="batchPanel" style="display:none; margin-top:15px; padding:15px; background:#f1f2f6; border-radius:12px;">
+                    <p style="margin:0 0 8px;">粘贴单词列表（每行一个）：</p>
+                    <textarea id="batchWordList" rows="6" placeholder="apple&#10;book&#10;cat" style="width:100%; border-radius:8px; border:1px solid #ccc; padding:8px; font-size:16px;"></textarea>
+                    <div style="display:flex; gap:20px; margin-top:10px; flex-wrap:wrap;">
+                        <label>每组数量：<input id="batchGroupSize" type="number" value="50" min="1" style="width:70px; padding:4px;"></label>
+                        <label>分类前缀：<input id="batchCategoryPrefix" type="text" value="Unit" style="width:90px; padding:4px;"></label>
+                    </div>
+                    <button onclick="startBatchImport()" style="margin-top:10px; padding:8px 20px; background:#6c5ce7; color:white; border:none; border-radius:20px; cursor:pointer;">🚀 开始导入</button>
+                    <span id="batchProgress" style="margin-left:15px; font-size:14px; color:#2d3436;"></span>
+                </div>
                 <button onclick="addWord()">✅ 添加</button>
             </div>
 
@@ -919,6 +933,82 @@
         function initSpellTab() {
             updateSpellCategoryFilter();
             resetSpellTest();
+        }
+        // 批量导入相关函数
+        function toggleBatchPanel() {
+            const panel = document.getElementById('batchPanel');
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        }
+
+        // 从词典API获取单词的音标和释义（返回Promise）
+        async function fetchWordDetails(word) {
+            const result = { phonetic: '', meaning: '' };
+            try {
+                const resp = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${word}`);
+                const data = await resp.json();
+                if (data && Array.isArray(data) && data[0]) {
+                    result.phonetic = data[0].phonetic || (data[0].phonetics && data[0].phonetics[0] && data[0].phonetics[0].text) || '';
+                    const meanings = data[0].meanings;
+                    if (meanings && meanings.length > 0 && meanings[0].definitions && meanings[0].definitions.length > 0) {
+                        result.meaning = meanings[0].definitions[0].definition;
+                    }
+                }
+            } catch (e) { }
+            return result;
+        }
+
+        // 开始批量导入
+        async function startBatchImport() {
+            const rawText = document.getElementById('batchWordList').value.trim();
+            if (!rawText) { alert('请粘贴单词列表'); return; }
+            const groupSize = parseInt(document.getElementById('batchGroupSize').value) || 50;
+            const prefix = document.getElementById('batchCategoryPrefix').value.trim() || 'Unit';
+
+            // 分割单词，去重，过滤空行
+            const wordList = [...new Set(rawText.split('\n').map(w => w.trim()).filter(w => w))];
+            if (wordList.length === 0) { alert('未检测到有效单词'); return; }
+
+            const progressSpan = document.getElementById('batchProgress');
+            const total = wordList.length;
+            let importedCount = 0;
+            progressSpan.innerText = `准备导入 ${total} 个单词...`;
+
+            for (let i = 0; i < total; i++) {
+                const word = wordList[i];
+                // 跳过已经存在的单词（不重复添加）
+                if (words.some(w => w.word.toLowerCase() === word.toLowerCase())) {
+                    progressSpan.innerText = `跳过重复: ${word} (${i + 1}/${total})`;
+                    await new Promise(r => setTimeout(r, 100)); // 轻微延迟
+                    continue;
+                }
+
+                // 查询词典
+                const details = await fetchWordDetails(word);
+                const groupIndex = Math.floor(importedCount / groupSize) + 1;
+                const category = `${prefix}${groupIndex}`;
+
+                words.push({
+                    word: word,
+                    phonetic: details.phonetic || '/ /',
+                    meaning: details.meaning || '（待补充）',
+                    category: category,
+                    date: new Date().toISOString().slice(0, 10)
+                });
+                importedCount++;
+                progressSpan.innerText = `已导入: ${importedCount}/${total} (${word})`;
+
+                saveWords(); // 每导入一个就存一次，防止中途丢失
+                // 延迟，避免API限流（800ms较安全）
+                await new Promise(r => setTimeout(r, 800));
+            }
+
+            progressSpan.innerText = `✅ 完成！成功导入 ${importedCount} 个新单词。`;
+            renderWordList();
+            updateRandomCategoryFilter();
+            updateSpellCategoryFilter();
+            updateRandomTotal();
+            // 可选：导入完后自动隐藏面板
+            setTimeout(() => { document.getElementById('batchPanel').style.display = 'none'; }, 2000);
         }
     </script>
 </body>
